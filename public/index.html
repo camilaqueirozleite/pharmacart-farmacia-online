@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PharmaCart – Produtos</title>
+  <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+  <header>
+    <div class="topo">
+      <a class="logo" href="/">PharmaCart <span>farmácia online</span></a>
+      <nav id="menu"></nav>
+    </div>
+  </header>
+
+  <main>
+    <h1>Produtos</h1>
+    <p class="aviso-ficticio">Farmácia fictícia para fins de estudo. Não vende medicamentos reais.</p>
+    <div id="mensagem" class="mensagem" role="alert" data-testid="mensagem"></div>
+    <div id="produtos" class="grelha" data-testid="lista-produtos"></div>
+  </main>
+
+  <footer>PharmaCart · Projeto de Portfólio Pessoal · Mentoria em Testes de Software</footer>
+
+  <script src="/js/api.js"></script>
+  <script>
+    async function carregarProdutos() {
+      const lista = document.getElementById('produtos');
+      const produtos = await api('/api/produtos');
+
+      lista.innerHTML = produtos.map((p) => {
+        const esgotado = p.stock === 0;
+        const etiqueta = p.categoria === 'MSRM'
+          ? '<span class="etiqueta msrm">MSRM · exige receita</span>'
+          : '<span class="etiqueta mnsrm">MNSRM · venda livre</span>';
+        return `
+          <article class="cartao" data-testid="produto-${p.id}">
+            ${etiqueta}
+            <h2>${p.nome}</h2>
+            <p>${p.descricao}</p>
+            <div class="preco" data-testid="preco-${p.id}">${euros(p.preco)}</div>
+            <div class="stock" data-testid="stock-${p.id}">
+              ${esgotado ? '<span class="etiqueta esgotado">Esgotado</span>' : `${p.stock} em stock`}
+            </div>
+            <button data-produto="${p.id}" data-testid="adicionar-${p.id}">Adicionar ao carrinho</button>
+          </article>`;
+      }).join('');
+
+      lista.querySelectorAll('button[data-produto]').forEach((botao) =>
+        botao.addEventListener('click', () => adicionar(Number(botao.dataset.produto)))
+      );
+    }
+
+    async function adicionar(produtoId) {
+      limparMensagem();
+      if (!Sessao.token) {
+        mostrarMensagem('Faça login para adicionar produtos ao carrinho.', 'info');
+        return;
+      }
+      try {
+        await api('/api/carrinho/itens', { method: 'POST', body: { produtoId, quantidade: 1 } });
+        mostrarMensagem('Produto adicionado ao carrinho.', 'sucesso');
+        atualizarContadorCarrinho();
+      } catch (erro) {
+        mostrarMensagem(erro.message);
+        if (!Sessao.token) montarMenu();
+      }
+    }
+
+    carregarProdutos().catch((erro) => mostrarMensagem(erro.message));
+  </script>
+</body>
+</html>
