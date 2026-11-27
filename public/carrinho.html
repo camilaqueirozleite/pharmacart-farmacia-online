@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PharmaCart – Carrinho</title>
+  <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+  <header>
+    <div class="topo">
+      <a class="logo" href="/">PharmaCart <span>farmácia online</span></a>
+      <nav id="menu"></nav>
+    </div>
+  </header>
+
+  <main>
+    <h1>Carrinho</h1>
+    <div id="mensagem" class="mensagem" role="alert" data-testid="mensagem"></div>
+
+    <div id="vazio" class="cartao escondido" data-testid="carrinho-vazio">
+      <p>O carrinho está vazio.</p>
+      <a class="botao" href="/">Ver produtos</a>
+    </div>
+
+    <div id="conteudo" class="colunas escondido">
+      <table data-testid="tabela-carrinho">
+        <thead>
+          <tr>
+            <th>Produto</th>
+            <th>Quantidade</th>
+            <th class="num">Subtotal</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="itens"></tbody>
+      </table>
+
+      <form id="form-checkout" class="cartao resumo" novalidate>
+        <label for="formaPagamento">Forma de pagamento</label>
+        <select id="formaPagamento" data-testid="checkout-forma-pagamento">
+          <option value="cartao">Cartão</option>
+          <option value="mbway">MB WAY</option>
+          <option value="dinheiro">Dinheiro (−10% em MNSRM)</option>
+        </select>
+
+        <div id="bloco-receita" class="escondido">
+          <label for="numeroReceita">Número da receita</label>
+          <input id="numeroReceita" inputmode="numeric" maxlength="19" placeholder="19 dígitos" data-testid="checkout-receita">
+          <span class="ajuda">Obrigatório: o carrinho tem medicamentos sujeitos a receita médica.</span>
+        </div>
+
+        <dl>
+          <dt>Subtotal</dt><dd id="subtotal" data-testid="resumo-subtotal"></dd>
+          <dt>Desconto</dt><dd id="desconto" data-testid="resumo-desconto"></dd>
+          <dt>Portes</dt><dd id="portes" data-testid="resumo-portes"></dd>
+          <dt class="total">Total</dt><dd id="total" class="total" data-testid="resumo-total"></dd>
+        </dl>
+        <span id="nota-vip" class="ajuda"></span>
+
+        <button type="submit" data-testid="checkout-finalizar">Finalizar compra</button>
+      </form>
+    </div>
+
+    <div id="confirmacao" class="cartao escondido" data-testid="confirmacao-pedido"></div>
+  </main>
+
+  <footer>PharmaCart · Projeto de Portfólio Pessoal · Mentoria em Testes de Software</footer>
+
+  <script src="/js/api.js"></script>
+  <script>
+    if (!Sessao.token) window.location.href = '/login.html';
+
+    const formaPagamento = document.getElementById('formaPagamento');
+
+    function mostrar(id, visivel) {
+      document.getElementById(id).classList.toggle('escondido', !visivel);
+    }
+
+    async function carregar() {
+      const c = await api(`/api/carrinho?formaPagamento=${formaPagamento.value}`);
+      mostrar('vazio', c.itens.length === 0);
+      mostrar('conteudo', c.itens.length > 0);
+      mostrar('bloco-receita', c.exigeReceita);
+
+      document.getElementById('itens').innerHTML = c.itens.map((i) => `
+        <tr data-testid="item-${i.produtoId}">
+          <td>
+            ${i.nome}<br>
+            <span class="etiqueta ${i.categoria.toLowerCase()}">${i.categoria}</span>
+            <span class="ajuda">${euros(i.precoUnitario)} / un.</span>
+          </td>
+          <td>
+            <div class="qtd">
+              <button type="button" class="secundario pequeno" data-acao="menos" data-produto="${i.produtoId}" data-quantidade="${i.quantidade}" data-testid="menos-${i.produtoId}" aria-label="Diminuir">−</button>
+              <span data-testid="quantidade-${i.produtoId}">${i.quantidade}</span>
+              <button type="button" class="secundario pequeno" data-acao="mais" data-produto="${i.produtoId}" data-quantidade="${i.quantidade}" data-testid="mais-${i.produtoId}" aria-label="Aumentar">+</button>
+            </div>
+          </td>
+          <td class="num">${euros(i.subtotal)}</td>
+          <td><button type="button" class="secundario pequeno" data-acao="remover" data-produto="${i.produtoId}" data-testid="remover-${i.produtoId}">Remover</button></td>
+        </tr>`).join('');
+
+      document.getElementById('subtotal').textContent = euros(c.subtotal);
+      document.getElementById('desconto').textContent = c.desconto > 0 ? `− ${euros(c.desconto)}` : euros(0);
+      document.getElementById('portes').textContent = c.portes === 0 ? 'Grátis' : euros(c.portes);
+      document.getElementById('total').textContent = euros(c.total);
+      document.getElementById('nota-vip').textContent = c.clienteVip
+        ? 'Cliente VIP: portes grátis.'
+        : 'Portes grátis para clientes VIP (a partir de 300 € em compras).';
+
+      atualizarContadorCarrinho();
+    }
+
+    document.getElementById('itens').addEventListener('click', async (e) => {
+      const botao = e.target.closest('button[data-acao]');
+      if (!botao) return;
+      limparMensagem();
+      const id = botao.dataset.produto;
+      const quantidade = Number(botao.dataset.quantidade);
+      try {
+        if (botao.dataset.acao === 'remover' || (botao.dataset.acao === 'menos' && quantidade === 1)) {
+          await api(`/api/carrinho/itens/${id}`, { method: 'DELETE' });
+        } else {
+          const nova = botao.dataset.acao === 'mais' ? quantidade + 1 : quantidade - 1;
+          await api(`/api/carrinho/itens/${id}`, { method: 'PUT', body: { quantidade: nova } });
+        }
+      } catch (erro) {
+        mostrarMensagem(erro.message);
+      }
+      carregar().catch((erro) => mostrarMensagem(erro.message));
+    });
+
+    formaPagamento.addEventListener('change', () =>
+      carregar().catch((erro) => mostrarMensagem(erro.message))
+    );
+
+    document.getElementById('form-checkout').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      limparMensagem();
+      const body = { formaPagamento: formaPagamento.value };
+      const receita = document.getElementById('numeroReceita').value.trim();
+      if (receita) body.numeroReceita = receita;
+
+      try {
+        const pedido = await api('/api/checkout', { method: 'POST', body });
+        Sessao.atualizarUsuario(await api('/api/auth/me'));
+        montarMenu();
+
+        mostrar('conteudo', false);
+        mostrar('confirmacao', true);
+        document.getElementById('confirmacao').innerHTML = `
+          <h2 data-testid="pedido-numero">Pedido n.º ${pedido.id} confirmado</h2>
+          <p>Total pago: <strong data-testid="pedido-total">${euros(pedido.total)}</strong>
+             (desconto ${euros(pedido.desconto)} · portes ${pedido.portes === 0 ? 'grátis' : euros(pedido.portes)})</p>
+          ${pedido.tornouSeVip ? '<p class="mensagem sucesso visivel" data-testid="pedido-vip">Parabéns! Atingiu 300 € em compras e passou a cliente VIP: as próximas encomendas têm portes grátis.</p>' : ''}
+          <a class="botao" href="/">Continuar a comprar</a>`;
+      } catch (erro) {
+        mostrarMensagem(erro.message);
+        carregar().catch(() => {});
+      }
+    });
+
+    if (Sessao.token) carregar().catch((erro) => mostrarMensagem(erro.message));
+  </script>
+</body>
+</html>

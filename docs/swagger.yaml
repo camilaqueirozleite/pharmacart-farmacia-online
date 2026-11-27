@@ -1,0 +1,540 @@
+openapi: 3.0.3
+info:
+  title: PharmaCart – API da Farmácia Online
+  version: 1.0.0
+  description: |
+    API REST de uma farmácia online **fictícia**, criada para o Projeto de Portfólio Pessoal
+    da Mentoria em Testes de Software.
+
+    **Regras de negócio**
+    1. Pagamento em **dinheiro** dá **10% de desconto**, aplicado **apenas aos produtos MNSRM**.
+    2. Um produto só pode ser adicionado ao carrinho se houver **stock** suficiente.
+    3. Clientes **VIP** (total gasto ≥ **300 €**) têm **portes grátis**. Os restantes pagam **4,99 €**.
+    4. Pedidos com **MSRM** só são finalizados com um **número de receita com 19 dígitos**.
+    5. Máximo de **2 embalagens** do mesmo medicamento por compra.
+
+    **Autenticação:** faça login em `POST /api/auth/login`, copie o `token` e clique em **Authorize**.
+  contact:
+    name: Camila Queiroz da Costa Leite
+servers:
+  - url: http://localhost:3000
+    description: Ambiente local
+tags:
+  - name: Autenticação
+    description: Registo e login
+  - name: Produtos
+    description: Catálogo de medicamentos
+  - name: Carrinho
+    description: Gestão do carrinho de compras
+  - name: Finalização de Compra
+    description: Checkout e histórico de pedidos
+
+paths:
+  /api/auth/registo:
+    post:
+      tags: [Autenticação]
+      summary: Registar um novo cliente
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegistoRequest'
+            example:
+              nome: Daniela Rocha
+              email: daniela@pharmacart.pt
+              senha: Teste@123
+      responses:
+        '201':
+          description: Cliente registado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Usuario'
+        '400':
+          $ref: '#/components/responses/PedidoInvalido'
+        '409':
+          description: Email já registado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Erro'
+              example:
+                erro: Já existe uma conta com este email.
+
+  /api/auth/login:
+    post:
+      tags: [Autenticação]
+      summary: Fazer login e obter o token de acesso
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+            example:
+              email: ana@pharmacart.pt
+              senha: Teste@123
+      responses:
+        '200':
+          description: Login efetuado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '400':
+          $ref: '#/components/responses/PedidoInvalido'
+        '401':
+          description: Credenciais inválidas
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Erro'
+              example:
+                erro: Email ou palavra-passe inválidos.
+
+  /api/auth/me:
+    get:
+      tags: [Autenticação]
+      summary: Dados do cliente autenticado (inclui estado VIP)
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Cliente autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Usuario'
+        '401':
+          $ref: '#/components/responses/NaoAutenticado'
+
+  /api/auth/logout:
+    post:
+      tags: [Autenticação]
+      summary: Terminar a sessão (invalida o token)
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: Sessão terminada
+        '401':
+          $ref: '#/components/responses/NaoAutenticado'
+
+  /api/produtos:
+    get:
+      tags: [Produtos]
+      summary: Listar produtos
+      responses:
+        '200':
+          description: Lista de produtos
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Produto'
+
+  /api/produtos/{id}:
+    get:
+      tags: [Produtos]
+      summary: Obter um produto
+      parameters:
+        - $ref: '#/components/parameters/ProdutoIdPath'
+      responses:
+        '200':
+          description: Produto
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Produto'
+        '404':
+          $ref: '#/components/responses/NaoEncontrado'
+
+  /api/carrinho:
+    get:
+      tags: [Carrinho]
+      summary: Ver o carrinho com o resumo de valores
+      description: Use `formaPagamento=dinheiro` para simular o desconto da regra 1.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: formaPagamento
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/FormaPagamento'
+      responses:
+        '200':
+          description: Carrinho
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Carrinho'
+        '400':
+          $ref: '#/components/responses/PedidoInvalido'
+        '401':
+          $ref: '#/components/responses/NaoAutenticado'
+
+  /api/carrinho/itens:
+    post:
+      tags: [Carrinho]
+      summary: Adicionar um produto ao carrinho
+      description: Aplica as regras 2 (stock) e 5 (máximo 2 embalagens por medicamento).
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ItemRequest'
+            example:
+              produtoId: 1
+              quantidade: 1
+      responses:
+        '201':
+          description: Produto adicionado; devolve o carrinho atualizado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Carrinho'
+        '400':
+          $ref: '#/components/responses/PedidoInvalido'
+        '401':
+          $ref: '#/components/responses/NaoAutenticado'
+        '404':
+          $ref: '#/components/responses/NaoEncontrado'
+        '422':
+          $ref: '#/components/responses/RegraNegocio'
+
+  /api/carrinho/itens/{produtoId}:
+    put:
+      tags: [Carrinho]
+      summary: Alterar a quantidade de um produto no carrinho
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProdutoIdCarrinho'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [quantidade]
+              properties:
+                quantidade:
+                  type: integer
+                  minimum: 1
+                  example: 2
+      responses:
+        '200':
+          description: Carrinho atualizado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Carrinho'
+        '400':
+          $ref: '#/components/responses/PedidoInvalido'
+        '401':
+          $ref: '#/components/responses/NaoAutenticado'
+        '404':
+          $ref: '#/components/responses/NaoEncontrado'
+        '422':
+          $ref: '#/components/responses/RegraNegocio'
+    delete:
+      tags: [Carrinho]
+      summary: Remover um produto do carrinho
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProdutoIdCarrinho'
+      responses:
+        '200':
+          description: Carrinho atualizado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Carrinho'
+        '401':
+          $ref: '#/components/responses/NaoAutenticado'
+        '404':
+          $ref: '#/components/responses/NaoEncontrado'
+
+  /api/checkout:
+    post:
+      tags: [Finalização de Compra]
+      summary: Finalizar a compra do carrinho
+      description: |
+        Aplica as regras 1 (desconto em dinheiro só em MNSRM), 3 (portes grátis para VIP),
+        4 (receita obrigatória para MSRM) e volta a validar as regras 2 e 5.
+        Abate o stock, soma o valor pago ao total gasto do cliente e esvazia o carrinho.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CheckoutRequest'
+            examples:
+              semReceita:
+                summary: Só MNSRM, pagamento em dinheiro
+                value:
+                  formaPagamento: dinheiro
+              comReceita:
+                summary: Com MSRM (exige receita)
+                value:
+                  formaPagamento: cartao
+                  numeroReceita: '1234567890123456789'
+      responses:
+        '201':
+          description: Pedido confirmado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Pedido'
+        '400':
+          $ref: '#/components/responses/PedidoInvalido'
+        '401':
+          $ref: '#/components/responses/NaoAutenticado'
+        '422':
+          $ref: '#/components/responses/RegraNegocio'
+
+  /api/pedidos:
+    get:
+      tags: [Finalização de Compra]
+      summary: Listar os pedidos do cliente autenticado
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Pedidos
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Pedido'
+        '401':
+          $ref: '#/components/responses/NaoAutenticado'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: Token devolvido pelo login.
+
+  parameters:
+    ProdutoIdPath:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+        example: 1
+    ProdutoIdCarrinho:
+      name: produtoId
+      in: path
+      required: true
+      schema:
+        type: integer
+        example: 1
+
+  responses:
+    PedidoInvalido:
+      description: Dados em falta ou inválidos
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Erro'
+    NaoAutenticado:
+      description: Token em falta ou inválido
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Erro'
+          example:
+            erro: Autenticação necessária. Faça login e envie o token.
+    NaoEncontrado:
+      description: Recurso não encontrado
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Erro'
+          example:
+            erro: Produto não encontrado.
+    RegraNegocio:
+      description: Uma regra de negócio impediu a operação
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Erro'
+          examples:
+            semStock:
+              summary: Regra 2 – sem stock
+              value:
+                erro: Ibuprofeno 400 mg está esgotado e não pode ser adicionado ao carrinho.
+            limite:
+              summary: Regra 5 – limite de embalagens
+              value:
+                erro: Limite de 2 embalagens por medicamento em cada compra.
+            receita:
+              summary: Regra 4 – receita em falta
+              value:
+                erro: Este pedido contém medicamentos sujeitos a receita médica (MSRM). Indique o número da receita.
+
+  schemas:
+    Erro:
+      type: object
+      properties:
+        erro:
+          type: string
+    FormaPagamento:
+      type: string
+      enum: [dinheiro, cartao, mbway]
+      default: cartao
+    RegistoRequest:
+      type: object
+      required: [nome, email, senha]
+      properties:
+        nome:
+          type: string
+        email:
+          type: string
+          format: email
+        senha:
+          type: string
+          minLength: 6
+    LoginRequest:
+      type: object
+      required: [email, senha]
+      properties:
+        email:
+          type: string
+          format: email
+        senha:
+          type: string
+    Usuario:
+      type: object
+      properties:
+        id:
+          type: integer
+        nome:
+          type: string
+        email:
+          type: string
+        totalGasto:
+          type: number
+          example: 0
+        vip:
+          type: boolean
+          description: true quando o total gasto é ≥ 300 €
+    LoginResponse:
+      type: object
+      properties:
+        token:
+          type: string
+        usuario:
+          $ref: '#/components/schemas/Usuario'
+    Produto:
+      type: object
+      properties:
+        id:
+          type: integer
+        nome:
+          type: string
+        descricao:
+          type: string
+        categoria:
+          type: string
+          enum: [MSRM, MNSRM]
+          description: MSRM = sujeito a receita médica; MNSRM = não sujeito a receita médica
+        preco:
+          type: number
+          example: 3.5
+        stock:
+          type: integer
+    ItemRequest:
+      type: object
+      required: [produtoId]
+      properties:
+        produtoId:
+          type: integer
+        quantidade:
+          type: integer
+          minimum: 1
+          default: 1
+    ItemCarrinho:
+      type: object
+      properties:
+        produtoId:
+          type: integer
+        nome:
+          type: string
+        categoria:
+          type: string
+          enum: [MSRM, MNSRM]
+        precoUnitario:
+          type: number
+        quantidade:
+          type: integer
+        subtotal:
+          type: number
+    Carrinho:
+      type: object
+      properties:
+        itens:
+          type: array
+          items:
+            $ref: '#/components/schemas/ItemCarrinho'
+        formaPagamento:
+          $ref: '#/components/schemas/FormaPagamento'
+        clienteVip:
+          type: boolean
+        exigeReceita:
+          type: boolean
+          description: true quando o carrinho tem pelo menos um MSRM
+        subtotal:
+          type: number
+        desconto:
+          type: number
+          description: 10% do subtotal MNSRM quando o pagamento é em dinheiro
+        portes:
+          type: number
+          description: 0 para VIP; 4,99 € para os restantes
+        total:
+          type: number
+    CheckoutRequest:
+      type: object
+      required: [formaPagamento]
+      properties:
+        formaPagamento:
+          $ref: '#/components/schemas/FormaPagamento'
+        numeroReceita:
+          type: string
+          pattern: '^\d{19}$'
+          description: Obrigatório quando o carrinho tem MSRM
+    Pedido:
+      allOf:
+        - $ref: '#/components/schemas/Carrinho'
+        - type: object
+          properties:
+            id:
+              type: integer
+            usuarioId:
+              type: integer
+            criadoEm:
+              type: string
+              format: date-time
+            estado:
+              type: string
+              example: confirmado
+            numeroReceita:
+              type: string
+              nullable: true
+            tornouSeVip:
+              type: boolean
+              description: true quando esta compra fez o cliente atingir os 300 €

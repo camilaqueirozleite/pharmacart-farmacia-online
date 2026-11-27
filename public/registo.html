@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PharmaCart – Criar conta</title>
+  <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+  <header>
+    <div class="topo">
+      <a class="logo" href="/">PharmaCart <span>farmácia online</span></a>
+      <nav id="menu"></nav>
+    </div>
+  </header>
+
+  <main>
+    <h1>Criar conta</h1>
+    <div id="mensagem" class="mensagem" role="alert" data-testid="mensagem"></div>
+
+    <form id="form-registo" class="cartao" novalidate>
+      <label for="nome">Nome</label>
+      <input id="nome" name="nome" type="text" autocomplete="name" data-testid="registo-nome">
+
+      <label for="email">Email</label>
+      <input id="email" name="email" type="email" autocomplete="email" data-testid="registo-email">
+
+      <label for="senha">Palavra-passe</label>
+      <input id="senha" name="senha" type="password" autocomplete="new-password" data-testid="registo-senha">
+      <span class="ajuda">Mínimo de 6 caracteres.</span>
+
+      <button type="submit" data-testid="registo-submeter">Criar conta</button>
+      <p class="ajuda">Já tem conta? <a href="/login.html">Entrar</a></p>
+    </form>
+  </main>
+
+  <footer>PharmaCart · Projeto de Portfólio Pessoal · Mentoria em Testes de Software</footer>
+
+  <script src="/js/api.js"></script>
+  <script>
+    document.getElementById('form-registo').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      limparMensagem();
+      try {
+        await api('/api/auth/registo', {
+          method: 'POST',
+          body: {
+            nome: document.getElementById('nome').value,
+            email: document.getElementById('email').value,
+            senha: document.getElementById('senha').value
+          }
+        });
+        window.location.href = '/login.html?registo=ok';
+      } catch (erro) {
+        mostrarMensagem(erro.message);
+      }
+    });
+  </script>
+</body>
+</html>
